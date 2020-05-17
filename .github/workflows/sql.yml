@@ -1,0 +1,60 @@
+on:
+  push:
+    branchs:
+    - test
+
+jobs:
+  comment:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v1
+    - name: Set up Ruby 2.6
+      uses: actions/setup-ruby@v1
+      with:
+        ruby-version: 2.6.x
+    - name: gem i
+      run: gem i sqlint
+    - name: run sqlint
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        URL: ${{ github.event.pull_request.comments_url }}
+        GITHUB_PR_NUMBER: ${{ github.event.pull_request.number }}
+      run: |
+        ## setup
+        pull_n=$(jq --raw-output .pull_request.number "$GITHUB_EVENT_PATH")
+        pull_n=1
+        export GOPATH=$HOME/go
+        export PATH=$PATH:$GOROOT/bin:$GOPATH/bin
+        go get -v github.com/syui/xq
+
+        ## github-api:pull-req
+        p=pull.json
+        URL=https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${pull_n}/comments
+        curl -H "Authorization: token ${GITHUB_TOKEN}" https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${pull_n}/files > $p
+
+        ## review sqlint
+        out=sql.txt
+        n=`cat $p|jq length`
+        n=`expr $n - 1`
+        for ((i=0;i<=$n;i++))
+        do
+        	f=`cat $p|jq -r ".[${i}].filename"`
+        	t=${f##*.}
+        	if [ "sql" = "$t" ];then
+            if ! lint_body=`sqlint $f`;then
+              echo "$lint_body" >> $out
+            fi
+        	fi
+        done
+        if [ -n "`cat $out`" ];then
+          echo "### :exclamation: sqlint ...no" >> $out
+        else
+          echo "### :white_check_mark: sqlint ...ok" >> $out
+        fi
+        cat $out
+        xq j $out
+        curl -X POST \
+           -H "Authorization: token ${GITHUB_TOKEN}" \
+           -d "`xq j $out`" \
+           ${URL}
