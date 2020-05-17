@@ -1,7 +1,7 @@
 on:
   push:
-    branchs:
-    - test
+    branches:
+      - test
 
 jobs:
   comment:
